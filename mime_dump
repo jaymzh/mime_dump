@@ -1,5 +1,7 @@
 #!/usr/bin/perl
 
+# -*- mode: perl; -*-
+# vim:textwidth=78:
 #
 # This is a generic script to dump the contents of all the text-based MIME
 # parts in a MIME message. It was originally written to fit into Greg K-H's
@@ -7,7 +9,11 @@
 # message, and spits out headers and the body, as well as the decoded portion
 # of any text-type attachments.
 #
-# Written by Phil Dibowitz <phil@ipom.com> on 10/19/06
+# Copyright (c) 2007 Phil Dibowitz (phil@ipom.com)
+#
+#   This program is free software; you can redistribute it and/or
+#   modify it under the terms of the GNU General Public License as
+#   published by the Free Software Foundation, version 2.
 #
 # $Id$
 #
