@@ -11,4 +11,5 @@ pieces you want, de-mime'd.
 mime_dump's help option describes all of it's options as well as the config
 file format.
 
-Phil Dibowitz <phil@ipom.com>
+- Phil Dibowitz <phil@ipom.com>
+http://www.phildev.net/mime_dump/
