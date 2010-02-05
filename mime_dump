@@ -24,14 +24,14 @@ use Getopt::Long qw(:config bundling);
 use Email::MIME;
 use File::HomeDir;
 
-use constant VERSION => "1.5";
+use constant VERSION => '1.6';
 use constant DEFAULT_SEPARATOR => "\n\n";
 use constant METHOD_FILE => 0;
 use constant METHOD_STDIN => 1;
 use constant SECTION_BEGIN => 0;
 use constant SECTION_END => 1;
-use constant GLOBAL_CONFIG => "/etc/mime_dump.conf";
-use constant LOCAL_CONFIG_FILE => ".mime_dump.conf";
+use constant GLOBAL_CONFIG => '/etc/mime_dump.conf';
+use constant LOCAL_CONFIG_FILE => '.mime_dump.conf';
 
 my $opts = {};
 GetOptions($opts,
