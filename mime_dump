@@ -23,7 +23,6 @@ use warnings;
 use Getopt::Long qw(:config bundling);
 use Email::MIME;
 use File::HomeDir;
-use Data::Dumper;
 
 use constant VERSION => "1.5";
 use constant DEFAULT_SEPARATOR => "\n\n";
@@ -42,8 +41,10 @@ GetOptions($opts,
 	'help|h',
 	'html|H',
 	'headers=s',
+	'no-headers',
 	'indent|i',
 	'separator|s=s',
+	'types|t=s',
 	'verbose|v')
 	|| die();
 
@@ -66,7 +67,7 @@ my @lines;
 if ($settings->{'method'} == METHOD_STDIN) {
 	@lines = <STDIN>;
 } else {
-	open(INPUT,$settings->{'file'})
+	open(INPUT, $settings->{'file'})
 		|| die("ERROR: Couldn't open $settings->{'file'}");
 	@lines = <INPUT>;
 	close(INPUT)
@@ -90,7 +91,7 @@ if ($lines[0] =~ /^From /) {
 #
 # Get our message in one scalar for Email::MIME
 #
-my $msg = join('',@lines);
+my $msg = join('', @lines);
 
 #
 # Parse the message
@@ -101,19 +102,21 @@ my @parts = $parsed->parts;
 #
 # Print the headers
 #
-if ($settings->{'from'} == 1 && $e_from ne '') {
-	print "$e_from\n";
-}
-my @headers;
-if (scalar(@{$settings->{'headers'}}) == 0) {
-	@headers = $parsed->header_names();
-} else {
-	@headers = @{$settings->{'headers'}};
-}
+unless ($settings->{'no-headers'}) {
+	if ($settings->{'from'} == 1 && $e_from ne '') {
+		print "$e_from\n";
+	}
+	my @headers;
+	if (scalar(@{$settings->{'headers'}}) == 0) {
+		@headers = $parsed->header_names();
+	} else {
+		@headers = @{$settings->{'headers'}};
+	}
 
-foreach my $hdr (@headers) {
-	foreach my $inst ($parsed->header($hdr)) {
-		print "$hdr: " . $inst . "\n";
+	foreach my $hdr (@headers) {
+		foreach my $inst ($parsed->header($hdr)) {
+			print "$hdr: " . $inst . "\n";
+		}
 	}
 }
 
@@ -122,18 +125,18 @@ foreach my $hdr (@headers) {
 #
 print $settings->{'separator'};
 
-#
-# For debugging
-#
-#print Dumper(\@parts);
-#exit;
+my $type_re = undef;
+# If needed, prep a regex of types
+if (scalar(@{$settings->{'types'}})) {
+	$type_re = join('|', @{$settings->{'types'}});
+}
 
 #
 # Loop through all MIME parts. If it's plain text, print it.
 #
 my $indent=0;
 foreach my $part (@parts) {
-	parse_part($part,$indent);
+	parse_part($part, $indent, $type_re);
 }
 
 ################################################
@@ -146,7 +149,7 @@ foreach my $part (@parts) {
 #
 sub parse_part
 {
-	my ($part,$indent) = @_;
+	my ($part, $indent, $type_re) = @_;
 
 	debug("In parse_part");
 
@@ -175,25 +178,33 @@ sub parse_part
 		$type = 'text/plain';
 	}
 
-	print_sec(SECTION_BEGIN,\$pad,$indent) if ($settings->{'verbose'} == 1);
+	print_sec(SECTION_BEGIN, \$pad, $indent)
+		if ($settings->{'verbose'} == 1);
 
 	if ($type =~ /multipart\//) {
 		foreach my $subpart ($part->parts()) {
-			parse_part($subpart,$indent+1);
+			parse_part($subpart, $indent+1);
 		}
+	} elsif (defined($type_re)) {
+		if ($type =~ /$type_re/) {
+			print_pad(\$pad, $part->body);
+			print_pad(\$pad, $settings->{'separator'})
+				if (!exists($opts->{'mark-sections'}));
+		}
+		return;
 	} elsif ($type =~ /text\/html/ && $settings->{'html'} != 1) {
 		return;
 	} elsif ($type =~ /text\//) {
 		debug("type: $type");
-		print_pad(\$pad,$part->body);
-		print_pad(\$pad,$settings->{'separator'})
+		print_pad(\$pad, $part->body);
+		print_pad(\$pad, $settings->{'separator'})
 			if (!exists($opts->{'mark-sections'}));
 	} else {
-		print_pad(\$pad,"Skipping part of type $type\n")
+		print_pad(\$pad, "Skipping part of type $type\n")
 			if ($settings->{'verbose'} == 1);
 	}
 
-	print_sec(SECTION_END,\$pad,$indent) if ($settings->{'verbose'} == 1);
+	print_sec(SECTION_END, \$pad, $indent) if ($settings->{'verbose'} == 1);
 
 	return;
 
@@ -227,11 +238,18 @@ sub help
 	print "\tOnly print these headers\n";
 	print "    -i, --indent\n";
 	print "\tIndent enclosure one tab\n";
+	print "    --no-headers\n";
+	print "\tDo not print any headers. Has precedence over --headers.\n";
 	print "    -s, --separator <sep>\n";
 	print "\tUse <sep> to separate various MIME parts.\n";
+	print "    -t, --types <type1>[,<type2},...]\n";
+	print "\tOnly print the following MIME types. This is useful for"
+		. " non-text\n\ttypes which are not printed by default, or"
+		. " for example, extracting\n\ta PDF or image from a message."
+		. "\n";
 	print "    -v, --verbose\n";
 	print "\tVerbose. This option prints headers around each enclosure"
-		. "and\n\timplies -i\n\n";
+		. " and\n\timplies -i\n\n";
 
 	print "Note: You may also give mime_dump input on STDIN. For";
 	print " example:\n\techo email.txt | mime_dump\n";
@@ -255,9 +273,9 @@ sub help
 #
 sub print_pad
 {
-	my ($pad_ptr,$msg) = @_;
+	my ($pad_ptr, $msg) = @_;
 	my $pad = $$pad_ptr;
-	my @lines = split(/\n/,$msg);
+	my @lines = split(/\n/, $msg);
 	foreach my $line (@lines) {
 		print "${pad}${line}\n";
 	}
@@ -268,11 +286,11 @@ sub print_pad
 #
 sub print_sec
 {
-	my ($pos,$pad_ptr,$indent) = @_;
+	my ($pos, $pad_ptr, $indent) = @_;
 
 	$msg = ($pos) ? "== END" : " BEGIN";
 
-	print_pad($pad_ptr,"==================$msg ENCLOSURE LEVEL $indent"
+	print_pad($pad_ptr, "==================$msg ENCLOSURE LEVEL $indent"
 		. " =========================\n")
 		if ($settings->{'verbose'} == 1);
 
@@ -287,14 +305,14 @@ sub print_sec
 #
 sub read_config
 {
-	my ($file,$conf) = @_;
+	my ($file, $conf) = @_;
 
-	open(CONF,"<$file") || die("ERROR: Couldn't open $file");
+	open(CONF, "<$file") || die("ERROR: Couldn't open $file");
 	
 	foreach my $line (<CONF>) {
 		next if ($line =~ /^#|^$/);
 		chomp($line);
-		my ($key,$val) = split(/\s*=\s*/,$line,2);
+		my ($key, $val) = split(/\s*=\s*/, $line, 2);
 		$conf->{$key} = $val;
 	}
 
@@ -328,6 +346,7 @@ sub build_settings
 		'indent' => 0,
 		'verbose' => 0,
 		'from' => 0,
+		'no-headers' => 0,
 		};
 
 	my $nonflags = {
@@ -335,6 +354,7 @@ sub build_settings
 		'method' => METHOD_FILE,
 		'headers' => [],
 		'file' => '',
+		'types' => [],
 		};
 
 	#
@@ -346,9 +366,9 @@ sub build_settings
 	# Grab config file
 	#
 	my $config = {};
-	read_config(GLOBAL_CONFIG,$config) if (-r GLOBAL_CONFIG);
+	read_config(GLOBAL_CONFIG, $config) if (-r GLOBAL_CONFIG);
 	my $local_config = home() . '/' . LOCAL_CONFIG_FILE;
-	read_config($local_config,$config) if (-r $local_config);
+	read_config($local_config, $config) if (-r $local_config);
 
 	#
 	# Pull in all flags
@@ -380,11 +400,19 @@ sub build_settings
 	}
 
 	#
-	# Most of them are the same...
+	# For single-value entries
 	#
-	for my $key ('separator', 'file') {
+	foreach my $key ('separator', 'file') {
 		$settings->{$key} = $config->{$key} if (exists($config->{$key}));
 		$settings->{$key} = $opts->{$key} if (exists($opts->{$key}));
+	}
+
+	# For list entries
+	foreach my $key ('headers', 'types') {
+		@{$settings->{$key}} = split(/\s*,\s*/, $config->{$key})
+			if (exists($config->{$key}));
+		@{$settings->{$key}} = split(/\s*,\s*/, $opts->{$key})
+			if (exists($opts->{$key}));
 	}
 
 	# Extra step for separator
@@ -394,13 +422,6 @@ sub build_settings
 	$settings->{$key} =~ s/\\n/\n/g;
 	$settings->{$key} =~ s/\\r/\r/g;
 	$settings->{$key} =~ s/\\t/\t/g;
-
-	# Headers needs special handling
-	$key = 'headers';
-	@{$settings->{$key}} = split(/\s*,\s*/,$config->{$key})
-		if (exists($config->{$key}));
-	@{$settings->{$key}} = split(/\s*,\s*/,$opts->{$key})
-		if (exists($opts->{$key}));
 
 	#
 	# If -f is passed in, we read from that file.
